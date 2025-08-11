@@ -35,6 +35,9 @@ export class BuiltinCommands {
         try {
           const stats = await fs.stat(newPath);
           if (stats.isDirectory()) {
+            // Node.jsのワーキングディレクトリを変更 🔄
+            process.chdir(newPath);
+            // シェル状態も更新 📝
             this.setState(prev => ({ ...prev, currentDirectory: newPath }));
             return { stdout: '', stderr: '', exitCode: 0 };
           } else {

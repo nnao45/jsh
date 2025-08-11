@@ -5,8 +5,9 @@ A modern, interactive shell built with [Ink](https://github.com/vadimdemedes/ink
 ## 🌟 Features
 
 - 🎨 **Interactive UI** - Built with React components using Ink
+- ⚡ **Shell-Like Experience** - Enter creates new prompts like real shells
 - 📚 **Command History** - Navigate through previous commands with arrow keys
-- 🎯 **Tab Completion** - Smart completion for commands and file paths
+- 🎯 **ZSH-Style Tab Completion** - Interactive completion menu with visual selection
 - 💼 **Job Control** - Background/foreground job management
 - 🔌 **PTY Support** - Full pseudoterminal integration
 - 🛠️ **Built-in Commands** - Essential shell commands included
@@ -62,8 +63,10 @@ npm test
 ## 🎮 Key Bindings
 
 ### Basic Navigation
+- `Enter` - Execute command and show new prompt (like real shells!)
+- `Enter` (empty) - Show new prompt line
 - `↑/↓` - Navigate command history
-- `Ctrl+C` - Interrupt current command
+- `Ctrl+C` - Interrupt current command / Clear input
 - `Ctrl+D` - Exit shell (in PTY mode)
 
 ### ZSH-Style Tab Completion 🎯
@@ -73,6 +76,11 @@ npm test
 - `Enter` - Confirm selected completion
 - `Esc` - Cancel completion and restore original input
 - Any character input - Cancel completion and continue typing
+
+**Smart Completion Behavior:**
+- Preserves your typed input and appends the completion
+- Example: typing `cd /tm` + Tab → `cd /tmp/` (preserves "cd /tm", adds "p/")
+- No more annoying full replacement of your input!
 
 ## 🏗️ Architecture
 

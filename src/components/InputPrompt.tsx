@@ -34,11 +34,8 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
 
   return (
     <Box>
-      <Text color="green" bold>
-        🏠 {currentDir}
-      </Text>
       <Text color="cyan" bold>
-        {' $ '}
+        $ 
       </Text>
       <Text>{input}</Text>
       <Text color="green">▋</Text>

@@ -15,6 +15,8 @@ export const OutputRenderer: React.FC<OutputRendererProps> = ({ output }) => {
         return 'red';
       case 'info':
         return 'yellow';
+      case 'prompt':
+        return 'green';
       case 'output':
       default:
         return 'white';
@@ -29,6 +31,8 @@ export const OutputRenderer: React.FC<OutputRendererProps> = ({ output }) => {
         return '❌';
       case 'info':
         return 'ℹ️';
+      case 'prompt':
+        return '🏠';
       case 'output':
       default:
         return '📄';

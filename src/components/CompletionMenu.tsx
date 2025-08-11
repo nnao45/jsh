@@ -46,6 +46,9 @@ export const CompletionMenu: React.FC<CompletionMenuProps> = ({
           const isSelected = actualIndex === selectedIndex;
           const isDirectory = completion.endsWith('/');
           
+          // 表示用: 補完部分のみ表示（baseInputは表示しない）
+          const displayCompletion = completion;
+          
           return (
             <Box key={`completion-${actualIndex}`}>
               <Text 
@@ -54,7 +57,7 @@ export const CompletionMenu: React.FC<CompletionMenuProps> = ({
                 bold={isSelected}
               >
                 {isSelected ? '▶ ' : '  '}
-                {isDirectory ? '📁' : '📄'} {completion}
+                {isDirectory ? '📁' : '📄'} {displayCompletion}
                 {isSelected ? ' ◀' : ''}
               </Text>
             </Box>

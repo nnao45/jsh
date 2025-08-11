@@ -5,6 +5,8 @@ import { glob } from 'glob';
 export interface CompletionResult {
   completions: string[];
   commonPrefix: string;
+  baseInput: string;        // 元の入力（置換されない部分）
+  completionStart: number;  // 補完が開始される位置
 }
 
 export class TabCompletion {
@@ -39,17 +41,31 @@ export class TabCompletion {
     const beforeCursor = input.slice(0, cursorPosition);
     const words = beforeCursor.split(/\s+/);
     const currentWord = words[words.length - 1] || '';
+    
+    // 現在の単語の開始位置を計算 📍
+    const currentWordStart = beforeCursor.length - currentWord.length;
+    const baseInput = input.slice(0, currentWordStart);
 
     // 最初の単語の場合はコマンド補完 🔍
-    if (words.length === 1 || (words.length === 2 && beforeCursor.endsWith(' ') === false)) {
-      return this.completeCommand(currentWord);
+    if (words.length === 1) {
+      const result = await this.completeCommand(currentWord);
+      return {
+        ...result,
+        baseInput,
+        completionStart: currentWordStart,
+      };
     }
 
     // ファイル/ディレクトリ補完 📁
-    return this.completeFilePath(currentWord);
+    const result = await this.completeFilePath(currentWord);
+    return {
+      ...result,
+      baseInput,
+      completionStart: currentWordStart,
+    };
   }
 
-  private async completeCommand(prefix: string): Promise<CompletionResult> {
+  private async completeCommand(prefix: string): Promise<Omit<CompletionResult, 'baseInput' | 'completionStart'>> {
     const allCommands = [
       ...Array.from(this.builtinCommands),
       ...this.cachedPath,
@@ -65,7 +81,7 @@ export class TabCompletion {
     };
   }
 
-  private async completeFilePath(prefix: string): Promise<CompletionResult> {
+  private async completeFilePath(prefix: string): Promise<Omit<CompletionResult, 'baseInput' | 'completionStart'>> {
     try {
       // 絶対パスか相対パスか判断 🗺️
       const isAbsolute = prefix.startsWith('/');
@@ -73,8 +89,18 @@ export class TabCompletion {
         ? path.join(process.env.HOME || '/', prefix.slice(2))
         : prefix;
 
-      const dirname = path.dirname(expandedPrefix);
-      const basename = path.basename(expandedPrefix);
+      // 末尾スラッシュの特別処理 🔧
+      let dirname: string;
+      let basename: string;
+      
+      if (expandedPrefix.endsWith('/') && expandedPrefix.length > 1) {
+        // 末尾スラッシュがある場合（/etc/ など）
+        dirname = expandedPrefix.slice(0, -1); // 末尾スラッシュを除去
+        basename = ''; // 全てのファイルを対象
+      } else {
+        dirname = path.dirname(expandedPrefix);
+        basename = path.basename(expandedPrefix);
+      }
       
       // ディレクトリが存在するかチェック 📋
       const targetDir = dirname === '.' ? process.cwd() : dirname;
@@ -85,7 +111,15 @@ export class TabCompletion {
           .filter(entry => entry.name.startsWith(basename))
           .map(entry => {
             const fullName = entry.isDirectory() ? `${entry.name}/` : entry.name;
-            return dirname === '.' ? fullName : path.join(dirname, fullName);
+            
+            // 末尾スラッシュがある場合の特別処理 🎯
+            if (expandedPrefix.endsWith('/') && expandedPrefix.length > 1) {
+              // 例: "/etc/" の場合、"passwd" → "/etc/passwd" を返す
+              return path.join(dirname, fullName);
+            } else {
+              // 通常の処理
+              return dirname === '.' ? fullName : path.join(dirname, fullName);
+            }
           })
           .sort();
 
