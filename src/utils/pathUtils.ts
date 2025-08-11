@@ -23,12 +23,12 @@ export function getShortHostname(): string {
 
 /**
  * プロンプト行全体を生成
- * 形式: user@hostname:~/current/path $ 
+ * 形式: user@hostname:~/current/path
  */
 export function generatePromptLine(currentDirectory: string, user?: string): string {
-  const username = user || os.userInfo().username;
-  const hostname = getShortHostname();
+  // const username = user || os.userInfo().username;
+  // const hostname = getShortHostname();
   const shortPath = getShortPath(currentDirectory);
   
-  return `${username}@${hostname}:${shortPath} $ `;
+  return `${shortPath}`;
 }

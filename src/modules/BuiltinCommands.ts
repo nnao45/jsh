@@ -169,7 +169,10 @@ export class BuiltinCommands {
           .join('\n');
         
         const header = '🐚 InkSh Built-in Commands ✨\n' + '='.repeat(40) + '\n';
-        return { stdout: header + helpText, stderr: '', exitCode: 0 };
+        const footer = '\n💡 環境変数:\n' +
+                      '  INKSH_ANIMATION=false     - アニメーション無効化\n' +
+                      '  INKSH_ANIMATION_INTERVAL  - アニメーション間隔(ms)';
+        return { stdout: header + helpText + footer, stderr: '', exitCode: 0 };
       }
     });
 

@@ -14,6 +14,7 @@ const initialState: ShellState = {
   history: [],
   historyIndex: -1,
   currentInput: '',
+  cursorPosition: 0,
   isRunningCommand: false,
   isRunningInteractive: false,
   output: [],
@@ -25,6 +26,12 @@ const initialState: ShellState = {
     cursorPosition: 0,
     baseInput: '',
     completionStart: 0,
+  },
+  historySearch: {
+    isActive: false,
+    query: '',
+    matchedCommand: '',
+    originalInput: '',
   },
 };
 
@@ -84,7 +91,8 @@ export const Shell: React.FC = () => {
       historyIndex: -1,
       isRunningCommand: true,
       currentInput: '',
-      tabCompletion: { ...initialState.tabCompletion }, // 補完もリセット
+      cursorPosition: 0,
+      tabCompletion: { ...initialState.tabCompletion },
     }));
 
     try {
@@ -164,13 +172,15 @@ export const Shell: React.FC = () => {
     if (state.tabCompletion.isActive) {
       setState(prev => {
         const newIndex = (prev.tabCompletion.selectedIndex + 1) % prev.tabCompletion.completions.length;
+        const newInput = prev.tabCompletion.baseInput + prev.tabCompletion.completions[newIndex];
         return {
           ...prev,
           tabCompletion: {
             ...prev.tabCompletion,
             selectedIndex: newIndex,
           },
-          currentInput: prev.tabCompletion.baseInput + prev.tabCompletion.completions[newIndex],
+          currentInput: newInput,
+          cursorPosition: newInput.length,
         };
       });
       return;
@@ -186,26 +196,30 @@ export const Shell: React.FC = () => {
         // 単一の候補 - 直接補完 ✨
         const completion = result.completions[0];
         if (completion) {
+          const newInput = result.baseInput + completion;
           setState(prev => ({ 
             ...prev, 
-            currentInput: result.baseInput + completion,
+            currentInput: newInput,
+            cursorPosition: newInput.length,
             tabCompletion: { ...initialState.tabCompletion }
           }));
         }
       } else {
         // 複数の候補 - 補完メニューを表示 📋
+        const newInput = result.baseInput + (result.completions[0] || '');
         setState(prev => ({
           ...prev,
           tabCompletion: {
             isActive: true,
-            completions: result.completions, // 補完部分だけを保存
+            completions: result.completions,
             selectedIndex: 0,
             originalInput: prev.currentInput,
             cursorPosition: prev.currentInput.length,
             baseInput: result.baseInput,
             completionStart: result.completionStart,
           },
-          currentInput: result.baseInput + result.completions[0] || prev.currentInput,
+          currentInput: newInput,
+          cursorPosition: newInput.length,
         }));
       }
     } catch (error) {
@@ -221,6 +235,7 @@ export const Shell: React.FC = () => {
       const newIndex = prev.tabCompletion.selectedIndex === 0 
         ? prev.tabCompletion.completions.length - 1
         : prev.tabCompletion.selectedIndex - 1;
+      const newInput = prev.tabCompletion.baseInput + prev.tabCompletion.completions[newIndex];
       
       return {
         ...prev,
@@ -228,7 +243,8 @@ export const Shell: React.FC = () => {
           ...prev.tabCompletion,
           selectedIndex: newIndex,
         },
-        currentInput: prev.tabCompletion.baseInput + prev.tabCompletion.completions[newIndex],
+        currentInput: newInput,
+        cursorPosition: newInput.length,
       };
     });
   }, [state.tabCompletion.isActive]);
@@ -238,6 +254,7 @@ export const Shell: React.FC = () => {
     setState(prev => ({
       ...prev,
       currentInput: prev.tabCompletion.originalInput,
+      cursorPosition: prev.tabCompletion.originalInput.length,
       tabCompletion: { ...initialState.tabCompletion },
     }));
   }, []);
@@ -275,6 +292,7 @@ export const Shell: React.FC = () => {
                 ? prev.tabCompletion.completions.length - 1 
                 : prev.tabCompletion.selectedIndex - 1)
             : (prev.tabCompletion.selectedIndex + 1) % prev.tabCompletion.completions.length;
+          const newInput = prev.tabCompletion.baseInput + prev.tabCompletion.completions[newIndex];
           
           return {
             ...prev,
@@ -282,55 +300,99 @@ export const Shell: React.FC = () => {
               ...prev.tabCompletion,
               selectedIndex: newIndex,
             },
-            currentInput: prev.tabCompletion.baseInput + prev.tabCompletion.completions[newIndex],
+            currentInput: newInput,
+            cursorPosition: newInput.length,
           };
         });
         return;
       } else if (!key.ctrl && !key.meta && input && input !== '\t') {
         // 通常の文字入力で補完をキャンセル ⌨️
         cancelCompletion();
-        setState(prev => ({
-          ...prev,
-          currentInput: prev.currentInput + input,
-        }));
+        setState(prev => {
+          const beforeCursor = prev.currentInput.slice(0, prev.cursorPosition);
+          const afterCursor = prev.currentInput.slice(prev.cursorPosition);
+          return {
+            ...prev,
+            currentInput: beforeCursor + input + afterCursor,
+            cursorPosition: prev.cursorPosition + input.length,
+          };
+        });
         return;
       }
     }
 
     // 通常の入力処理 ⌨️
     if (key.return) {
-      executeCommand(state.currentInput);
-      // 補完状態もリセット
-      setState(prev => ({
-        ...prev,
-        tabCompletion: { ...initialState.tabCompletion },
-      }));
+      if (state.historySearch.isActive) {
+        // 履歴検索モードでのEnter - 選択されたコマンドを確定
+        setState(prev => ({
+          ...prev,
+          historySearch: { ...initialState.historySearch },
+        }));
+      } else {
+        executeCommand(state.currentInput);
+        // 補完状態もリセット
+        setState(prev => ({
+          ...prev,
+          tabCompletion: { ...initialState.tabCompletion },
+        }));
+      }
+    } else if (key.escape) {
+      // Escapeキーで履歴検索をキャンセル
+      if (state.historySearch.isActive) {
+        setState(prev => ({
+          ...prev,
+          currentInput: prev.historySearch.originalInput,
+          cursorPosition: prev.historySearch.originalInput.length,
+          historySearch: { ...initialState.historySearch },
+        }));
+      }
     } else if (key.tab && key.shift) {
       // Shift+Tab (補完非アクティブ時は何もしない)
       return;
     } else if (key.tab) {
       // タブ補完実行 🎯
       handleTabCompletion();
+    } else if (key.leftArrow) {
+      // 左矢印キーでカーソルを左に移動 ⬅️
+      if (state.cursorPosition > 0) {
+        setState(prev => ({
+          ...prev,
+          cursorPosition: prev.cursorPosition - 1,
+        }));
+      }
+    } else if (key.rightArrow) {
+      // 右矢印キーでカーソルを右に移動 ➡️
+      if (state.cursorPosition < state.currentInput.length) {
+        setState(prev => ({
+          ...prev,
+          cursorPosition: prev.cursorPosition + 1,
+        }));
+      }
     } else if (key.upArrow) {
       // 履歴を上に ⬆️
       if (state.historyIndex < state.history.length - 1) {
         const newIndex = state.historyIndex + 1;
+        const newInput = state.history[state.history.length - 1 - newIndex] || '';
         setState(prev => ({
           ...prev,
           historyIndex: newIndex,
-          currentInput: prev.history[prev.history.length - 1 - newIndex] || '',
-          tabCompletion: { ...initialState.tabCompletion }, // 履歴移動時は補完リセット
+          currentInput: newInput,
+          cursorPosition: newInput.length,
+          tabCompletion: { ...initialState.tabCompletion },
         }));
       }
     } else if (key.downArrow) {
       // 履歴を下に ⬇️
       if (state.historyIndex > -1) {
         const newIndex = state.historyIndex - 1;
+        const newInput = newIndex === -1 ? '' : (state.history[state.history.length - 1 - newIndex] || '');
         setState(prev => ({
           ...prev,
           historyIndex: newIndex,
-          currentInput: newIndex === -1 ? '' : (prev.history[prev.history.length - 1 - newIndex] || ''),
-          tabCompletion: { ...initialState.tabCompletion }, // 履歴移動時は補完リセット
+          currentInput: newInput,
+          cursorPosition: newInput.length,
+          tabCompletion: { ...initialState.tabCompletion },
         }));
       }
     } else if (key.ctrl && input === 'c') {
@@ -348,25 +410,182 @@ export const Shell: React.FC = () => {
         addOutput('^C', 'info');
       } else {
         // 入力をクリア
-        setState(prev => ({ ...prev, currentInput: '' }));
+        setState(prev => ({ ...prev, currentInput: '', cursorPosition: 0 }));
       }
-    } else if (key.backspace || key.delete) {
-      // バックスペース処理 ⌫
+    } else if (key.ctrl && input === 'a') {
+      // Ctrl+A で行の先頭へ移動 🏠
+      setState(prev => ({ ...prev, cursorPosition: 0 }));
+    } else if (key.ctrl && input === 'e') {
+      // Ctrl+E で行の末尾へ移動 🏁
+      setState(prev => ({ ...prev, cursorPosition: prev.currentInput.length }));
+    } else if (key.ctrl && input === 'u') {
+      // Ctrl+U で行の先頭まで削除 ✂️
       setState(prev => ({
         ...prev,
-        currentInput: prev.currentInput.slice(0, -1),
-        tabCompletion: { ...initialState.tabCompletion }, // バックスペース時は補完リセット
-        historyIndex: -1, // 履歴インデックスもリセット
-      }));
-    } else if (input && !key.ctrl && !key.meta) {
-      // 通常の文字入力 ✏️
-      setState(prev => ({
-        ...prev,
-        currentInput: prev.currentInput + input,
-        // 文字入力時は補完と履歴インデックスをリセット
+        currentInput: prev.currentInput.slice(prev.cursorPosition),
+        cursorPosition: 0,
         tabCompletion: { ...initialState.tabCompletion },
         historyIndex: -1,
       }));
+    } else if (key.ctrl && input === 'k') {
+      // Ctrl+K で行の末尾まで削除 ✂️
+      setState(prev => ({
+        ...prev,
+        currentInput: prev.currentInput.slice(0, prev.cursorPosition),
+        tabCompletion: { ...initialState.tabCompletion },
+        historyIndex: -1,
+      }));
+    } else if (key.ctrl && input === 'w') {
+      // Ctrl+W で前の単語を削除 🗑️
+      setState(prev => {
+        const beforeCursor = prev.currentInput.slice(0, prev.cursorPosition);
+        const afterCursor = prev.currentInput.slice(prev.cursorPosition);
+        
+        // 前の単語の境界を見つける
+        const words = beforeCursor.trimEnd();
+        const lastSpaceIndex = words.lastIndexOf(' ');
+        const newBeforeCursor = lastSpaceIndex === -1 ? '' : words.slice(0, lastSpaceIndex + 1);
+        
+        return {
+          ...prev,
+          currentInput: newBeforeCursor + afterCursor,
+          cursorPosition: newBeforeCursor.length,
+          tabCompletion: { ...initialState.tabCompletion },
+          historyIndex: -1,
+        };
+      });
+    } else if (key.ctrl && input === 'l') {
+      // Ctrl+L で画面クリア 🧹
+      setState(prev => ({
+        ...prev,
+        output: [{
+          id: Date.now().toString(),
+          content: generatePromptLine(prev.currentDirectory),
+          type: 'prompt' as const,
+          timestamp: new Date(),
+          directory: prev.currentDirectory,
+        }],
+      }));
+    } else if (key.ctrl && input === 'd') {
+      // Ctrl+D でEOF/ログアウト 🚪
+      if (state.currentInput === '') {
+        exit();
+      }
+    } else if (key.ctrl && input === 'r') {
+      // Ctrl+R で履歴検索 🔍
+      if (!state.historySearch.isActive) {
+        setState(prev => ({
+          ...prev,
+          historySearch: {
+            isActive: true,
+            query: '',
+            matchedCommand: '',
+            originalInput: prev.currentInput,
+          },
+        }));
+      } else {
+        // 既に検索モードの場合は、次の候補を探す
+        const currentQuery = state.historySearch.query;
+        if (currentQuery) {
+          const matchedCommands = state.history.filter(cmd => 
+            cmd.includes(currentQuery)
+          ).reverse();
+          const currentIndex = matchedCommands.indexOf(state.historySearch.matchedCommand);
+          const nextCommand = matchedCommands[currentIndex + 1] || matchedCommands[0];
+          
+          if (nextCommand) {
+            setState(prev => ({
+              ...prev,
+              historySearch: {
+                ...prev.historySearch,
+                matchedCommand: nextCommand,
+              },
+              currentInput: nextCommand,
+              cursorPosition: nextCommand.length,
+            }));
+          }
+        }
+      }
+    } else if (key.backspace || key.delete) {
+      // バックスペース処理 ⌫
+      if (state.historySearch.isActive) {
+        setState(prev => {
+          const newQuery = prev.historySearch.query.slice(0, -1);
+          if (newQuery === '') {
+            return {
+              ...prev,
+              historySearch: {
+                ...prev.historySearch,
+                query: '',
+                matchedCommand: '',
+              },
+              currentInput: '',
+              cursorPosition: 0,
+            };
+          }
+          
+          const matchedCommand = prev.history.find(cmd => cmd.includes(newQuery));
+          return {
+            ...prev,
+            historySearch: {
+              ...prev.historySearch,
+              query: newQuery,
+              matchedCommand: matchedCommand || '',
+            },
+            currentInput: matchedCommand || newQuery,
+            cursorPosition: matchedCommand?.length || newQuery.length,
+          };
+        });
+      } else {
+        setState(prev => {
+          if (prev.cursorPosition > 0) {
+            const beforeCursor = prev.currentInput.slice(0, prev.cursorPosition - 1);
+            const afterCursor = prev.currentInput.slice(prev.cursorPosition);
+            return {
+              ...prev,
+              currentInput: beforeCursor + afterCursor,
+              cursorPosition: prev.cursorPosition - 1,
+              tabCompletion: { ...initialState.tabCompletion },
+              historyIndex: -1,
+            };
+          }
+          return prev;
+        });
+      }
+    } else if (input && !key.ctrl && !key.meta) {
+      // 通常の文字入力 ✏️
+      if (state.historySearch.isActive) {
+        setState(prev => {
+          const newQuery = prev.historySearch.query + input;
+          const matchedCommand = prev.history
+            .slice()
+            .reverse()
+            .find(cmd => cmd.includes(newQuery));
+          
+          return {
+            ...prev,
+            historySearch: {
+              ...prev.historySearch,
+              query: newQuery,
+              matchedCommand: matchedCommand || '',
+            },
+            currentInput: matchedCommand || newQuery,
+            cursorPosition: matchedCommand?.length || newQuery.length,
+          };
+        });
+      } else {
+        setState(prev => {
+          const beforeCursor = prev.currentInput.slice(0, prev.cursorPosition);
+          const afterCursor = prev.currentInput.slice(prev.cursorPosition);
+          return {
+            ...prev,
+            currentInput: beforeCursor + input + afterCursor,
+            cursorPosition: prev.cursorPosition + input.length,
+            tabCompletion: { ...initialState.tabCompletion },
+            historyIndex: -1,
+          };
+        });
+      }
     }
   }, [state, executeCommand, addOutput, handleTabCompletion, handleShiftTab, cancelCompletion]);
 
@@ -402,7 +621,9 @@ export const Shell: React.FC = () => {
       <InputPrompt
         currentDirectory={process.cwd()}
         input={state.currentInput}
+        cursorPosition={state.cursorPosition}
         isRunning={state.isRunningCommand}
+        historySearch={state.historySearch}
       />
 
       <CompletionMenu tabCompletion={state.tabCompletion} />

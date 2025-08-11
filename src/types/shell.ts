@@ -3,10 +3,17 @@ export interface ShellState {
   history: string[];
   historyIndex: number;
   currentInput: string;
+  cursorPosition: number;
   isRunningCommand: boolean;
   isRunningInteractive: boolean;
   output: OutputLine[];
   tabCompletion: TabCompletionState;
+  historySearch: {
+    isActive: boolean;
+    query: string;
+    matchedCommand: string;
+    originalInput: string;
+  };
 }
 
 export interface TabCompletionState {
