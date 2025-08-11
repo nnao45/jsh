@@ -50,3 +50,16 @@ export interface InteractiveCommandOptions extends CommandOptions {
   onSuspendUI?: () => void;
   onRestoreUI?: () => void;
 }
+
+export interface PipelineOptions extends CommandOptions {
+  // Extended options for pipeline execution
+}
+
+export type RedirectionType = '>' | '>>' | '<';
+
+export type ChainOperator = '&&' | '||' | ';';
+
+export interface CommandChain {
+  operator?: ChainOperator;
+  pipeline: string;  // The pipeline command string
+}

@@ -2,7 +2,7 @@ import os from 'os';
 import path from 'path';
 
 /**
- * パスを短縮表示用に変換（~/表記など）
+ * パスを短縮表示用に変換（ホームディレクトリを~に）
  */
 export function getShortPath(fullPath: string): string {
   const home = os.homedir();
@@ -13,29 +13,22 @@ export function getShortPath(fullPath: string): string {
 }
 
 /**
- * プロンプト用のディレクトリ表示を生成
+ * ホスト名を取得（短縮版）
  */
-export function formatPromptPath(currentDirectory: string): string {
-  const shortPath = getShortPath(currentDirectory);
-  const basename = path.basename(shortPath);
-  
-  // ホームディレクトリの場合
-  if (shortPath === '~') {
-    return '🏠 ~';
-  }
-  
-  // ルートディレクトリの場合
-  if (shortPath === '/') {
-    return '🏠 /';
-  }
-  
-  // その他の場合は最後のディレクトリ名を強調
-  return `🏠 ${shortPath}`;
+export function getShortHostname(): string {
+  const hostname = os.hostname();
+  // ドット区切りの最初の部分のみを返す（例：user.local → user）
+  return hostname.split('.')[0];
 }
 
 /**
  * プロンプト行全体を生成
+ * 形式: user@hostname:~/current/path $ 
  */
 export function generatePromptLine(currentDirectory: string, user?: string): string {
-  return `$ `;
+  const username = user || os.userInfo().username;
+  const hostname = getShortHostname();
+  const shortPath = getShortPath(currentDirectory);
+  
+  return `${username}@${hostname}:${shortPath} $ `;
 }

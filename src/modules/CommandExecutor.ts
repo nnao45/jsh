@@ -1,8 +1,11 @@
 import { execa } from 'execa';
-import { CommandResult, CommandOptions, InteractiveCommandOptions } from '../types/shell.js';
+import { CommandResult, CommandOptions, InteractiveCommandOptions, PipelineOptions } from '../types/shell.js';
 import { spawn } from 'child_process';
+import { PipelineManager } from './PipelineManager.js';
 
 export class CommandExecutor {
+  private pipelineManager: PipelineManager;
+  
   // List of commands that require interactive TTY support
   private readonly interactiveCommands = new Set([
     'top', 'htop', 'tmux', 'screen', 'vim', 'vi', 'nano', 'emacs',
@@ -12,12 +15,24 @@ export class CommandExecutor {
     'docker', 'sudo', 'su', 'passwd', 'crontab', 'visudo'
   ]);
 
+  constructor() {
+    this.pipelineManager = new PipelineManager();
+  }
+
   /**
    * Check if a command is likely to be interactive
    */
   private isInteractiveCommand(command: string): boolean {
     const [cmd] = command.trim().split(/\s+/);
     return this.interactiveCommands.has(cmd);
+  }
+
+  /**
+   * Check if a command contains pipes or redirections
+   */
+  private isPipelineCommand(command: string): boolean {
+    // Check for pipes, redirections, quotes, or other pipeline features
+    return /[|><&;"']/.test(command) || command.includes('&&') || command.includes('||');
   }
 
   /**
@@ -83,6 +98,24 @@ export class CommandExecutor {
    * Main execute method that automatically routes to appropriate execution method
    */
   async execute(command: string, options: CommandOptions | InteractiveCommandOptions): Promise<CommandResult> {
+    // Check if this is a pipeline command (pipes, redirections, etc.)
+    if (this.isPipelineCommand(command)) {
+      const pipelineOptions: PipelineOptions = {
+        currentDirectory: options.currentDirectory,
+        env: options.env,
+      };
+      
+      try {
+        return await this.pipelineManager.executeCommand(command, pipelineOptions);
+      } catch (error) {
+        return {
+          stdout: '',
+          stderr: `Pipeline error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          exitCode: 1,
+        };
+      }
+    }
+    
     // If this is an interactive command and we have the UI control callbacks,
     // use interactive execution
     if (this.isInteractiveCommand(command) && 'onSuspendUI' in options && options.onSuspendUI) {
