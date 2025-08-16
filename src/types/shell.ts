@@ -14,6 +14,12 @@ export interface ShellState {
     matchedCommand: string;
     originalInput: string;
   };
+  autoSuggestion: {
+    isVisible: boolean;
+    suggestion: string;
+    confidence: number;
+    source: 'history' | 'completion';
+  };
 }
 
 export interface TabCompletionState {

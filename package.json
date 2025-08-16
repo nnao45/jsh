@@ -1,11 +1,11 @@
 {
-  "name": "inksh",
+  "name": "jsh",
   "version": "0.1.0",
-  "description": "Next-generation interactive shell built with Ink (React for CLI)",
+  "description": "JavaScript Shell - Next-generation shell with JavaScript pipe functionality",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "inksh": "dist/index.js"
+    "jsh": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -21,6 +21,9 @@
     "shell",
     "terminal",
     "cli",
+    "javascript",
+    "pipe",
+    "jsh",
     "ink",
     "react",
     "typescript"

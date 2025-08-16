@@ -1,9 +1,9 @@
 /**
- * InkSh 設定管理
+ * JSH 設定管理
  * アニメーションやUI設定を管理
  */
 
-export interface InkshSettings {
+export interface JshSettings {
   animation: {
     enabled: boolean;
     sparkleIntervalMs: number;
@@ -15,7 +15,7 @@ export interface InkshSettings {
   };
 }
 
-export const DEFAULT_SETTINGS: InkshSettings = {
+export const DEFAULT_SETTINGS: JshSettings = {
   animation: {
     enabled: true,
     sparkleIntervalMs: 350,
@@ -30,20 +30,20 @@ export const DEFAULT_SETTINGS: InkshSettings = {
 /**
  * 設定の取得（将来的にファイルやenv variablesから読み込み予定）
  */
-export function getSettings(): InkshSettings {
-  // TODO: 設定ファイル (~/.inkshrc) からの読み込み
+export function getSettings(): JshSettings {
+  // TODO: 設定ファイル (~/.jshrc) からの読み込み
   // TODO: 環境変数からの上書き
   // 現在は デフォルト設定のみ
   
   const settings = { ...DEFAULT_SETTINGS };
   
   // 環境変数での上書き例
-  if (process.env.INKSH_ANIMATION === 'false') {
+  if (process.env.JSH_ANIMATION === 'false') {
     settings.animation.enabled = false;
   }
   
-  if (process.env.INKSH_ANIMATION_INTERVAL) {
-    const interval = parseInt(process.env.INKSH_ANIMATION_INTERVAL);
+  if (process.env.JSH_ANIMATION_INTERVAL) {
+    const interval = parseInt(process.env.JSH_ANIMATION_INTERVAL);
     if (!isNaN(interval) && interval > 0) {
       settings.animation.sparkleIntervalMs = interval;
     }

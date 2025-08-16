@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
 import { CommandResult, PipelineOptions, RedirectionType, ChainOperator, CommandChain } from '../types/shell.js';
+import { JSPipeEngine } from './JSPipeEngine.js';
 
 export interface PipelineCommand {
   command: string;
@@ -20,6 +21,37 @@ export interface Pipeline {
 }
 
 export class PipelineManager {
+  private jsPipeEngine: JSPipeEngine;
+
+  constructor() {
+    this.jsPipeEngine = new JSPipeEngine();
+  }
+
+  /**
+   * Check if command is a js pipe command
+   */
+  private isJSCommand(command: string): boolean {
+    return command === 'js';
+  }
+
+  /**
+   * Check if command uses npm: syntax
+   */
+  private isNPMCommand(command: string): boolean {
+    return command.startsWith('npm:');
+  }
+
+  /**
+   * Parse npm: command into package and method
+   */
+  private parseNPMCommand(command: string): { packageName: string; method: string } {
+    const npmPart = command.slice(4); // Remove 'npm:' prefix
+    const parts = npmPart.split('.');
+    const packageName = parts[0];
+    const method = parts[1] || 'default';
+    return { packageName, method };
+  }
+
   /**
    * Parse a command line that may contain chains (&&, ||, ;)
    * Returns either a single pipeline or executes the chain
@@ -391,12 +423,155 @@ export class PipelineManager {
   }
 
   /**
+   * Execute a JS or NPM command with piped input
+   */
+  private async executeJSCommand(
+    cmd: PipelineCommand,
+    pipeInput?: string,
+    options?: PipelineOptions
+  ): Promise<CommandResult> {
+    const { command, args } = cmd;
+
+    if (this.isJSCommand(command)) {
+      // js command: join args as JavaScript code
+      const code = args.join(' ');
+      return this.jsPipeEngine.executeJS(code, pipeInput);
+    } else if (this.isNPMCommand(command)) {
+      // npm: command
+      const { packageName, method } = this.parseNPMCommand(command);
+      const additionalArgs = args.length > 0 ? args.join(' ') : method;
+      return this.jsPipeEngine.executeNPM(packageName, additionalArgs, pipeInput);
+    }
+
+    // Should not reach here
+    return {
+      stdout: '',
+      stderr: `Unsupported JS/NPM command: ${command}`,
+      exitCode: 1,
+    };
+  }
+
+  /**
+   * Check if pipeline contains any JS or NPM commands
+   */
+  private hasJSCommands(commands: PipelineCommand[]): boolean {
+    return commands.some(cmd => 
+      this.isJSCommand(cmd.command) || this.isNPMCommand(cmd.command)
+    );
+  }
+
+  /**
+   * Execute mixed pipeline with JS/NPM and regular commands
+   */
+  private async executeMixedPipeline(
+    commands: PipelineCommand[],
+    options: PipelineOptions
+  ): Promise<CommandResult> {
+    let currentInput = '';
+    let finalResult: CommandResult = { stdout: '', stderr: '', exitCode: 0 };
+
+    for (let i = 0; i < commands.length; i++) {
+      const cmd = commands[i];
+      
+      if (this.isJSCommand(cmd.command) || this.isNPMCommand(cmd.command)) {
+        // Execute JS/NPM command with current input
+        finalResult = await this.executeJSCommand(cmd, currentInput, options);
+        
+        if (finalResult.exitCode !== 0) {
+          return finalResult; // Early exit on error
+        }
+        
+        currentInput = finalResult.stdout;
+      } else {
+        // Execute regular command
+        if (i === 0) {
+          // First command - no input
+          finalResult = await this.executeCommandWithRedirections(cmd, options);
+        } else {
+          // Pipe current input to command
+          finalResult = await this.executeCommandWithInput(cmd, currentInput, options);
+        }
+        
+        if (finalResult.exitCode !== 0) {
+          return finalResult; // Early exit on error
+        }
+        
+        currentInput = finalResult.stdout;
+      }
+    }
+
+    return finalResult;
+  }
+
+  /**
+   * Execute regular command with string input
+   */
+  private async executeCommandWithInput(
+    cmd: PipelineCommand,
+    input: string,
+    options: PipelineOptions
+  ): Promise<CommandResult> {
+    const { command, args, redirections } = cmd;
+    
+    return new Promise((resolve) => {
+      const child = spawn(command, args, {
+        cwd: options.currentDirectory,
+        env: options.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      // Write input to stdin
+      if (child.stdin && input) {
+        child.stdin.write(input);
+        child.stdin.end();
+      }
+
+      if (child.stdout) {
+        child.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+      }
+
+      if (child.stderr) {
+        child.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+      }
+
+      child.on('close', (code) => {
+        resolve({
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          exitCode: code || 0,
+        });
+      });
+
+      child.on('error', (error) => {
+        resolve({
+          stdout: '',
+          stderr: `Failed to execute '${command}': ${error.message}`,
+          exitCode: 1,
+        });
+      });
+    });
+  }
+
+  /**
    * Execute a chain of piped commands
    */
   private async executePipeChain(
     commands: PipelineCommand[], 
     options: PipelineOptions
   ): Promise<CommandResult> {
+    // Check if pipeline contains JS/NPM commands
+    if (this.hasJSCommands(commands)) {
+      return this.executeMixedPipeline(commands, options);
+    }
+
+    // Original implementation for regular commands only
     const processes: ChildProcess[] = [];
     let finalStdout = '';
     let combinedStderr = '';

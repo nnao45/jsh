@@ -16,6 +16,12 @@ interface InputPromptProps {
     matchedCommand: string;
     originalInput: string;
   };
+  autoSuggestion?: {
+    isVisible: boolean;
+    suggestion: string;
+    confidence: number;
+    source: 'history' | 'completion';
+  };
 }
 
 export const InputPrompt: React.FC<InputPromptProps> = ({
@@ -24,6 +30,7 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
   cursorPosition,
   isRunning,
   historySearch,
+  autoSuggestion,
 }) => {
   const settings = getSettings();
   const sparkleFrame = useSparkleAnimation({ 
@@ -57,6 +64,11 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
   const cursorChar = input[cursorPosition] || ' '; // カーソル位置の文字、末尾や空の場合は空白
   const afterCursor = input.slice(cursorPosition + 1);
 
+  // Auto-suggestion display
+  const showSuggestion = autoSuggestion?.isVisible && 
+                        autoSuggestion.suggestion && 
+                        cursorPosition === input.length; // Only show at end of input
+
   return (
     <Box>
       {sparkleFrame.symbols.map((symbol, index) => (
@@ -73,6 +85,11 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
       <Text>{beforeCursor}</Text>
       <Text backgroundColor="white" color="black">{cursorChar}</Text>
       <Text>{afterCursor}</Text>
+      {showSuggestion && (
+        <Text color="gray" dimColor>
+          {autoSuggestion.suggestion}
+        </Text>
+      )}
     </Box>
   );
 };

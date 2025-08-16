@@ -5,17 +5,20 @@ import { glob } from 'glob';
 import { ShellState, CommandResult, ShellCommand } from '../types/shell.js';
 import { ProcessManager } from './ProcessManager.js';
 import { PtyManager } from './PtyManager.js';
+import { JSPipeEngine } from './JSPipeEngine.js';
 
 export class BuiltinCommands {
   private commands: Map<string, ShellCommand> = new Map();
   private setState: React.Dispatch<React.SetStateAction<ShellState>>;
   private processManager: ProcessManager;
   private ptyManager: PtyManager;
+  private jsPipeEngine: JSPipeEngine;
 
   constructor(setState: React.Dispatch<React.SetStateAction<ShellState>>) {
     this.setState = setState;
     this.processManager = new ProcessManager();
     this.ptyManager = new PtyManager();
+    this.jsPipeEngine = new JSPipeEngine();
     this.initializeCommands();
   }
 
@@ -373,6 +376,23 @@ export class BuiltinCommands {
         } else {
           return { stdout: '', stderr: `pty-switch: session ${sessionId} not found`, exitCode: 1 };
         }
+      }
+    });
+
+    // js コマンド - JavaScript実行 🚀
+    this.commands.set('js', {
+      name: 'js',
+      description: 'JavaScript式を実行します（パイプライン対応）',
+      usage: 'js \'JavaScript-expression\'',
+      execute: async (args) => {
+        if (args.length === 0) {
+          return { stdout: '', stderr: 'js: missing JavaScript expression', exitCode: 1 };
+        }
+
+        const code = args.join(' ');
+        
+        // スタンドアロン実行（パイプライン外）
+        return this.jsPipeEngine.executeJS(code);
       }
     });
   }

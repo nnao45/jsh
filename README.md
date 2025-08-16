@@ -1,13 +1,21 @@
-# 🐚 InkSh - Next-Generation Interactive Shell ✨
+# 🐚 JSH - JavaScript Shell ✨
 
-A modern, interactive shell built with [Ink](https://github.com/vadimdemedes/ink) (React for CLI) and TypeScript.
+A next-generation shell with JavaScript pipe functionality, built with [Ink](https://github.com/vadimdemedes/ink) (React for CLI) and TypeScript.
 
 ## 🌟 Features
 
+### 🚀 **JavaScript Pipe Engine** - Core Feature
+- 📊 **JSON Processing** - `curl api.github.com/users/octocat | js 'JSON.parse($)' | js '({name: $.name, repos: $.public_repos})'`
+- 🔄 **Array Operations** - `ls -la | js '$.split("\n")' | js '$.filter(line => line.includes("json"))'`
+- 📦 **NPM Package Support** - `echo "hello world" | npm:chalk red | npm:figlet`
+- ⚡ **Async Processing** - `cat urls.txt | js '$.split("\n")' | js 'Promise.all($.map(url => fetch(url).then(r => r.json())))'`
+
+### 🎨 **Interactive Shell Experience**
 - 🎨 **Interactive UI** - Built with React components using Ink
 - ⚡ **Shell-Like Experience** - Enter creates new prompts like real shells
 - 📚 **Command History** - Navigate through previous commands with arrow keys
-- 🎯 **ZSH-Style Tab Completion** - Interactive completion menu with visual selection
+- 💭 **ZSH-Style Autosuggestions** - Gray text suggestions with fuzzy matching
+- 🎯 **Tab Completion** - Interactive completion menu with visual selection
 - 💼 **Job Control** - Background/foreground job management
 - 🔌 **PTY Support** - Full pseudoterminal integration
 - 🛠️ **Built-in Commands** - Essential shell commands included
@@ -31,10 +39,11 @@ npm run dev
 ```bash
 npm run demo
 ```
-Experience ZSH-style tab completion! Try typing:
-- `h` + Tab (help command)
-- `ls` + Tab (list files)
-- `src/` + Tab (browse directories)
+Experience JavaScript pipes and autosuggestions! Try:
+- `echo '{"name":"world"}' | js 'JSON.parse($)' | js '"Hello " + $.name'`
+- `ls | js '$.split("\n").filter(f => f.includes("src"))'`
+- Type `npm i` and see autosuggestions
+- Use Tab for completion and → to accept suggestions
 
 ### Running Tests
 ```bash
@@ -43,6 +52,11 @@ npm test
 
 ## 📖 Built-in Commands
 
+### 🚀 **JavaScript Commands**
+- `js 'expression'` - Execute JavaScript with piped input as `$`
+- `npm:package method` - Use NPM packages in pipelines
+
+### 🛠️ **Shell Commands**
 - `help` - Show available commands
 - `cd [directory]` - Change directory
 - `pwd` - Print working directory
@@ -66,6 +80,7 @@ npm test
 - `Enter` - Execute command and show new prompt (like real shells!)
 - `Enter` (empty) - Show new prompt line
 - `↑/↓` - Navigate command history
+- `→` - Accept autosuggestion (when suggestion is visible)
 - `Ctrl+C` - Interrupt current command / Clear input
 - `Ctrl+D` - Exit shell (in PTY mode)
 
@@ -91,8 +106,11 @@ npm test
 
 ### Core Modules
 
+- `JSPipeEngine` - JavaScript execution engine with VM contexts
+- `AutoSuggestion` - Fuzzy matching and command suggestions
 - `CommandExecutor` - External command execution
 - `BuiltinCommands` - Built-in shell commands
+- `PipelineManager` - Command pipeline processing
 - `ProcessManager` - Job control and process management
 - `PtyManager` - Pseudoterminal session management
 - `TabCompletion` - Command and path completion
@@ -116,7 +134,7 @@ npm test
 
 ## 🌐 Cross-Platform
 
-InkSh works on:
+JSH works on:
 - 🐧 Linux
 - 🍎 macOS
 - 🪟 Windows (with some limitations)

@@ -4,10 +4,13 @@ import { ShellState, OutputLine, CommandResult, InteractiveCommandOptions } from
 import { CommandExecutor } from '../modules/CommandExecutor.js';
 import { BuiltinCommands } from '../modules/BuiltinCommands.js';
 import { TabCompletion } from '../modules/TabCompletion.js';
+import { AutoSuggestion } from '../modules/AutoSuggestion.js';
 import { OutputRenderer } from './OutputRenderer.js';
 import { InputPrompt } from './InputPrompt.js';
 import { CompletionMenu } from './CompletionMenu.js';
 import { generatePromptLine } from '../utils/pathUtils.js';
+import { outputIdGenerator } from '../utils/idUtils.js';
+import { parseCommandLine, needsComplexParsing } from '../utils/commandParser.js';
 
 const initialState: ShellState = {
   currentDirectory: process.cwd(),
@@ -33,6 +36,12 @@ const initialState: ShellState = {
     matchedCommand: '',
     originalInput: '',
   },
+  autoSuggestion: {
+    isVisible: false,
+    suggestion: '',
+    confidence: 0,
+    source: 'history',
+  },
 };
 
 export const Shell: React.FC = () => {
@@ -56,13 +65,71 @@ export const Shell: React.FC = () => {
     return new TabCompletion(builtinCommandNames);
   }, [builtinCommands]);
 
+  // 自動提案システムの初期化 💡
+  const autoSuggestion = useMemo(() => {
+    return new AutoSuggestion({
+      minInputLength: 2,
+      maxSuggestions: 1,
+      enableFuzzyMatch: true,
+    });
+  }, []);
+
+  // 自動提案を更新する関数 💡
+  const updateAutoSuggestion = useCallback((input: string) => {
+    if (!input || !autoSuggestion.shouldSuggest(input)) {
+      setState(prev => ({
+        ...prev,
+        autoSuggestion: { ...initialState.autoSuggestion },
+      }));
+      return;
+    }
+
+    const suggestion = autoSuggestion.getSuggestion(
+      input,
+      state.history,
+      state.currentDirectory
+    );
+
+    setState(prev => ({
+      ...prev,
+      autoSuggestion: {
+        isVisible: !!suggestion,
+        suggestion: suggestion?.suggestion || '',
+        confidence: suggestion?.confidence || 0,
+        source: suggestion?.source || 'history',
+      },
+    }));
+  }, [autoSuggestion, state.history, state.currentDirectory]);
+
+  // 自動提案を受け入れる関数 ✅
+  const acceptAutoSuggestion = useCallback(() => {
+    if (state.autoSuggestion.isVisible && state.autoSuggestion.suggestion) {
+      const newInput = state.currentInput + state.autoSuggestion.suggestion;
+      
+      // Record acceptance for learning
+      autoSuggestion.recordFeedback(
+        state.currentInput,
+        state.autoSuggestion.suggestion,
+        true,
+        state.autoSuggestion.source
+      );
+
+      setState(prev => ({
+        ...prev,
+        currentInput: newInput,
+        cursorPosition: newInput.length,
+        autoSuggestion: { ...initialState.autoSuggestion },
+      }));
+    }
+  }, [state.currentInput, state.autoSuggestion, autoSuggestion]);
+
   const addOutput = useCallback((content: string, type: OutputLine['type'] = 'output', directory?: string) => {
     setState(prev => ({
       ...prev,
       output: [
         ...prev.output,
         {
-          id: Date.now().toString(),
+          id: outputIdGenerator.generate('output'),
           content,
           type,
           timestamp: new Date(),
@@ -96,7 +163,10 @@ export const Shell: React.FC = () => {
     }));
 
     try {
-      const [command, ...args] = input.trim().split(/\s+/);
+      // Use improved command parsing that respects quotes
+      const { command, args } = needsComplexParsing(input) 
+        ? parseCommandLine(input) 
+        : { command: input.trim().split(/\s+/)[0], args: input.trim().split(/\s+/).slice(1) };
       
       // ビルトインコマンドをチェック 🔍
       if (command && builtinCommands.hasCommand(command)) {
@@ -147,7 +217,7 @@ export const Shell: React.FC = () => {
         const currentCwd = process.cwd();
         const newPromptLine = generatePromptLine(currentCwd);
         const newOutput = [...prev.output, {
-          id: Date.now().toString(),
+          id: outputIdGenerator.generate('prompt'),
           content: newPromptLine,
           type: 'prompt' as const,
           timestamp: new Date(),
@@ -362,11 +432,18 @@ export const Shell: React.FC = () => {
         }));
       }
     } else if (key.rightArrow) {
-      // 右矢印キーでカーソルを右に移動 ➡️
-      if (state.cursorPosition < state.currentInput.length) {
+      // 右矢印キー - 自動提案があれば受け入れ、なければカーソル移動 ➡️
+      if (state.autoSuggestion.isVisible && 
+          state.autoSuggestion.suggestion && 
+          state.cursorPosition === state.currentInput.length) {
+        // 自動提案を受け入れ ✅
+        acceptAutoSuggestion();
+      } else if (state.cursorPosition < state.currentInput.length) {
+        // 通常のカーソル移動 ➡️
         setState(prev => ({
           ...prev,
           cursorPosition: prev.cursorPosition + 1,
+          autoSuggestion: { ...initialState.autoSuggestion }, // Hide suggestion when moving cursor
         }));
       }
     } else if (key.upArrow) {
@@ -459,7 +536,7 @@ export const Shell: React.FC = () => {
       setState(prev => ({
         ...prev,
         output: [{
-          id: Date.now().toString(),
+          id: outputIdGenerator.generate('prompt'),
           content: generatePromptLine(prev.currentDirectory),
           type: 'prompt' as const,
           timestamp: new Date(),
@@ -577,17 +654,30 @@ export const Shell: React.FC = () => {
         setState(prev => {
           const beforeCursor = prev.currentInput.slice(0, prev.cursorPosition);
           const afterCursor = prev.currentInput.slice(prev.cursorPosition);
+          const newInput = beforeCursor + input + afterCursor;
           return {
             ...prev,
-            currentInput: beforeCursor + input + afterCursor,
+            currentInput: newInput,
             cursorPosition: prev.cursorPosition + input.length,
             tabCompletion: { ...initialState.tabCompletion },
             historyIndex: -1,
           };
         });
+        
+        // Update auto-suggestion after state change
+        const beforeCursor = state.currentInput.slice(0, state.cursorPosition);
+        const afterCursor = state.currentInput.slice(state.cursorPosition);
+        const newInput = beforeCursor + input + afterCursor;
+        
+        // Delayed update to ensure cursor is at end for suggestion display
+        setTimeout(() => {
+          if (state.cursorPosition + input.length === newInput.length) {
+            updateAutoSuggestion(newInput);
+          }
+        }, 0);
       }
     }
-  }, [state, executeCommand, addOutput, handleTabCompletion, handleShiftTab, cancelCompletion]);
+  }, [state, executeCommand, addOutput, handleTabCompletion, handleShiftTab, cancelCompletion, updateAutoSuggestion, acceptAutoSuggestion]);
 
   useInput(handleInput, { isActive: true });
 
@@ -624,6 +714,7 @@ export const Shell: React.FC = () => {
         cursorPosition={state.cursorPosition}
         isRunning={state.isRunningCommand}
         historySearch={state.historySearch}
+        autoSuggestion={state.autoSuggestion}
       />
 
       <CompletionMenu tabCompletion={state.tabCompletion} />
