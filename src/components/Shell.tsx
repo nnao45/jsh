@@ -679,7 +679,7 @@ export const Shell: React.FC = () => {
     }
   }, [state, executeCommand, addOutput, handleTabCompletion, handleShiftTab, cancelCompletion, updateAutoSuggestion, acceptAutoSuggestion]);
 
-  useInput(handleInput, { isActive: true });
+  useInput(handleInput, { isActive: !state.isRunningInteractive });
 
   // 初回プロンプトを追加 🚀
   useEffect(() => {
@@ -701,7 +701,7 @@ export const Shell: React.FC = () => {
     <Box flexDirection="column">
       <Box marginBottom={1}>
         <Text color="cyan" bold>
-          🐚 InkSh - Next-Gen Interactive Shell ✨
+          🐚 JSH - Next-Gen Interactive Shell ✨
         </Text>
       </Box>
       
