@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Box, Text, useInput, useApp } from 'ink';
+import { Box, Text, useInput, useApp, useStdout } from 'ink';
 import { ShellState, OutputLine, CommandResult, InteractiveCommandOptions } from '../types/shell.js';
 import { CommandExecutor } from '../modules/CommandExecutor.js';
 import { BuiltinCommands } from '../modules/BuiltinCommands.js';
@@ -47,8 +47,27 @@ const initialState: ShellState = {
 export const Shell: React.FC = () => {
   const [state, setState] = useState<ShellState>(initialState);
   const { exit } = useApp();
+  const { stdout } = useStdout();
   const commandExecutor = new CommandExecutor();
   const builtinCommands = new BuiltinCommands(setState);
+  
+  // ターミナルサイズを監視して出力行数を制限
+  const [terminalHeight, setTerminalHeight] = useState(stdout?.rows || 24);
+  
+  useEffect(() => {
+    const updateTerminalSize = () => {
+      if (stdout) {
+        setTerminalHeight(stdout.rows);
+      }
+    };
+    
+    // ターミナルサイズ変更を監視
+    process.stdout.on('resize', updateTerminalSize);
+    
+    return () => {
+      process.stdout.off('resize', updateTerminalSize);
+    };
+  }, [stdout]);
   
   // UI suspension methods for interactive commands
   const suspendUI = useCallback(() => {
@@ -74,13 +93,21 @@ export const Shell: React.FC = () => {
     });
   }, []);
 
-  // 自動提案を更新する関数 💡
+  // 自動提案を更新する関数 💡（デバウンス付き）
   const updateAutoSuggestion = useCallback((input: string) => {
+    // 現在の提案と同じ場合は更新しない
+    if (state.autoSuggestion.suggestion && input && 
+        (input + state.autoSuggestion.suggestion).startsWith(input)) {
+      return;
+    }
+
     if (!input || !autoSuggestion.shouldSuggest(input)) {
-      setState(prev => ({
-        ...prev,
-        autoSuggestion: { ...initialState.autoSuggestion },
-      }));
+      if (state.autoSuggestion.isVisible) {
+        setState(prev => ({
+          ...prev,
+          autoSuggestion: { ...initialState.autoSuggestion },
+        }));
+      }
       return;
     }
 
@@ -90,16 +117,20 @@ export const Shell: React.FC = () => {
       state.currentDirectory
     );
 
-    setState(prev => ({
-      ...prev,
-      autoSuggestion: {
-        isVisible: !!suggestion,
-        suggestion: suggestion?.suggestion || '',
-        confidence: suggestion?.confidence || 0,
-        source: suggestion?.source || 'history',
-      },
-    }));
-  }, [autoSuggestion, state.history, state.currentDirectory]);
+    // 提案が変わった場合のみ更新
+    const newSuggestion = suggestion?.suggestion || '';
+    if (newSuggestion !== state.autoSuggestion.suggestion) {
+      setState(prev => ({
+        ...prev,
+        autoSuggestion: {
+          isVisible: !!suggestion,
+          suggestion: newSuggestion,
+          confidence: suggestion?.confidence || 0,
+          source: suggestion?.source || 'history',
+        },
+      }));
+    }
+  }, [autoSuggestion, state.history, state.currentDirectory, state.autoSuggestion]);
 
   // 自動提案を受け入れる関数 ✅
   const acceptAutoSuggestion = useCallback(() => {
@@ -124,6 +155,11 @@ export const Shell: React.FC = () => {
   }, [state.currentInput, state.autoSuggestion, autoSuggestion]);
 
   const addOutput = useCallback((content: string, type: OutputLine['type'] = 'output', directory?: string) => {
+    // コマンド実行中の場合は、段階的な出力を避けてバッチ処理
+    if (state.isRunningCommand && type === 'output') {
+      return; // コマンド実行中は出力を蓄積せず、完了後に一括表示
+    }
+    
     setState(prev => ({
       ...prev,
       output: [
@@ -137,7 +173,7 @@ export const Shell: React.FC = () => {
         }
       ]
     }));
-  }, []);
+  }, [state.isRunningCommand]);
 
   const executeCommand = useCallback(async (input: string) => {
     if (!input.trim()) {
@@ -171,8 +207,34 @@ export const Shell: React.FC = () => {
       // ビルトインコマンドをチェック 🔍
       if (command && builtinCommands.hasCommand(command)) {
         const result = await builtinCommands.execute(command, args);
-        if (result.stdout) addOutput(result.stdout, 'output');
-        if (result.stderr) addOutput(result.stderr, 'error');
+        
+        // 出力を一括で状態に追加
+        const newOutputs: OutputLine[] = [];
+        if (result.stdout) {
+          newOutputs.push({
+            id: outputIdGenerator.generate('output'),
+            content: result.stdout,
+            type: 'output',
+            timestamp: new Date(),
+            directory: state.currentDirectory,
+          });
+        }
+        if (result.stderr) {
+          newOutputs.push({
+            id: outputIdGenerator.generate('output'),
+            content: result.stderr,
+            type: 'error',
+            timestamp: new Date(),
+            directory: state.currentDirectory,
+          });
+        }
+        
+        if (newOutputs.length > 0) {
+          setState(prev => ({
+            ...prev,
+            output: [...prev.output, ...newOutputs]
+          }));
+        }
         
         // ビルトインコマンド実行後、ディレクトリが変更されている可能性があるのでチェック 🔍
         const newCwd = process.cwd();
@@ -192,8 +254,33 @@ export const Shell: React.FC = () => {
         };
         const result = await commandExecutor.execute(input, options);
         
-        if (result.stdout) addOutput(result.stdout, 'output');
-        if (result.stderr) addOutput(result.stderr, 'error');
+        // 出力を一括で状態に追加
+        const newOutputs: OutputLine[] = [];
+        if (result.stdout) {
+          newOutputs.push({
+            id: outputIdGenerator.generate('output'),
+            content: result.stdout,
+            type: 'output',
+            timestamp: new Date(),
+            directory: state.currentDirectory,
+          });
+        }
+        if (result.stderr) {
+          newOutputs.push({
+            id: outputIdGenerator.generate('output'),
+            content: result.stderr,
+            type: 'error',
+            timestamp: new Date(),
+            directory: state.currentDirectory,
+          });
+        }
+        
+        if (newOutputs.length > 0) {
+          setState(prev => ({
+            ...prev,
+            output: [...prev.output, ...newOutputs]
+          }));
+        }
         
         // 外部コマンド実行後、ディレクトリが変更されている可能性があるのでチェック 🔍
         const newCwd = process.cwd();
@@ -205,32 +292,22 @@ export const Shell: React.FC = () => {
       addOutput(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
 
+    // 実行完了後、新しいプロンプトと状態を一度に更新 ✨
+    const currentCwd = process.cwd();
+    const newPromptLine = generatePromptLine(currentCwd);
+    
     setState(prev => ({
       ...prev,
       isRunningCommand: false,
+      currentDirectory: currentCwd,
+      output: [...prev.output, {
+        id: outputIdGenerator.generate('prompt'),
+        content: newPromptLine,
+        type: 'prompt' as const,
+        timestamp: new Date(),
+        directory: currentCwd,
+      }]
     }));
-
-    // 実行完了後、新しいプロンプトを表示 ✨
-    setTimeout(() => {
-      setState(prev => {
-        // 最新のprocess.cwd()を使用してプロンプトを生成 📍
-        const currentCwd = process.cwd();
-        const newPromptLine = generatePromptLine(currentCwd);
-        const newOutput = [...prev.output, {
-          id: outputIdGenerator.generate('prompt'),
-          content: newPromptLine,
-          type: 'prompt' as const,
-          timestamp: new Date(),
-          directory: currentCwd,
-        }];
-        
-        return { 
-          ...prev, 
-          output: newOutput,
-          currentDirectory: currentCwd, // 状態も同期
-        };
-      });
-    }, 10); // 短い遅延で確実に最後に追加
   }, [state.currentDirectory, addOutput, builtinCommands, commandExecutor, suspendUI, restoreUI]);
 
 
@@ -664,17 +741,15 @@ export const Shell: React.FC = () => {
           };
         });
         
-        // Update auto-suggestion after state change
+        // Update auto-suggestion immediately
         const beforeCursor = state.currentInput.slice(0, state.cursorPosition);
         const afterCursor = state.currentInput.slice(state.cursorPosition);
         const newInput = beforeCursor + input + afterCursor;
         
-        // Delayed update to ensure cursor is at end for suggestion display
-        setTimeout(() => {
-          if (state.cursorPosition + input.length === newInput.length) {
-            updateAutoSuggestion(newInput);
-          }
-        }, 0);
+        // Only update suggestion if cursor is at end
+        if (state.cursorPosition + input.length === newInput.length) {
+          updateAutoSuggestion(newInput);
+        }
       }
     }
   }, [state, executeCommand, addOutput, handleTabCompletion, handleShiftTab, cancelCompletion, updateAutoSuggestion, acceptAutoSuggestion]);
@@ -705,7 +780,10 @@ export const Shell: React.FC = () => {
         </Text>
       </Box>
       
-      <OutputRenderer output={state.output} />
+      <OutputRenderer 
+        output={state.output} 
+        maxLines={Math.max(terminalHeight - 6, 10)} // ヘッダー、プロンプト、余白を考慮
+      />
       
       {/* 現在のプロンプトと入力を同じ行に表示 */}
       <InputPrompt
