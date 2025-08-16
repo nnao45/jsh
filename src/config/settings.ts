@@ -13,6 +13,12 @@ export interface JshSettings {
     showFullPromptInHistory: boolean;
     colorScheme: 'default' | 'minimal' | 'vibrant';
   };
+  history: {
+    enabled: boolean;
+    maxSize: number;
+    filePath?: string;
+    saveFailedCommands: boolean;
+  };
 }
 
 export const DEFAULT_SETTINGS: JshSettings = {
@@ -24,6 +30,12 @@ export const DEFAULT_SETTINGS: JshSettings = {
   ui: {
     showFullPromptInHistory: true,
     colorScheme: 'default',
+  },
+  history: {
+    enabled: true,
+    maxSize: 1000,
+    filePath: undefined, // undefinedの場合はデフォルトパス（~/.jsh_history）を使用
+    saveFailedCommands: false, // 失敗したコマンドは履歴に保存しない
   },
 };
 

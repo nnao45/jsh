@@ -6,6 +6,7 @@ import { ShellState, CommandResult, ShellCommand } from '../types/shell.js';
 import { ProcessManager } from './ProcessManager.js';
 import { PtyManager } from './PtyManager.js';
 import { JSPipeEngine } from './JSPipeEngine.js';
+import { HistoryManager } from './HistoryManager.js';
 
 export class BuiltinCommands {
   private commands: Map<string, ShellCommand> = new Map();
@@ -13,12 +14,14 @@ export class BuiltinCommands {
   private processManager: ProcessManager;
   private ptyManager: PtyManager;
   private jsPipeEngine: JSPipeEngine;
+  private historyManager?: HistoryManager;
 
-  constructor(setState: React.Dispatch<React.SetStateAction<ShellState>>) {
+  constructor(setState: React.Dispatch<React.SetStateAction<ShellState>>, historyManager?: HistoryManager) {
     this.setState = setState;
     this.processManager = new ProcessManager();
     this.ptyManager = new PtyManager();
     this.jsPipeEngine = new JSPipeEngine();
+    this.historyManager = historyManager;
     this.initializeCommands();
   }
 
@@ -130,15 +133,38 @@ export class BuiltinCommands {
     // history コマンド - コマンド履歴表示 📚
     this.commands.set('history', {
       name: 'history',
-      description: 'コマンド履歴を表示します',
-      execute: async () => {
-        return new Promise((resolve) => {
-          this.setState(prev => {
-            const historyList = prev.history.map((cmd, index) => `${index + 1}  ${cmd}`).join('\n');
-            resolve({ stdout: historyList, stderr: '', exitCode: 0 });
-            return prev;
-          });
-        });
+      description: 'コマンド履歴を表示・管理します',
+      usage: 'history [clear]',
+      execute: async (args) => {
+        if (!this.historyManager) {
+          return { stdout: '', stderr: 'HistoryManager is not available', exitCode: 1 };
+        }
+
+        // clear オプションをチェック
+        if (args.length > 0 && args[0] === 'clear') {
+          await this.historyManager.clearHistory();
+          
+          // 状態も更新
+          this.setState(prev => ({
+            ...prev,
+            history: [],
+            historyIndex: -1,
+          }));
+          
+          return { stdout: '履歴をクリアしました', stderr: '', exitCode: 0 };
+        }
+
+        // 履歴表示
+        const history = this.historyManager.getHistory();
+        if (history.length === 0) {
+          return { stdout: '履歴がありません', stderr: '', exitCode: 0 };
+        }
+
+        const historyList = history.map((cmd, index) => `${index + 1}  ${cmd}`).join('\n');
+        const stats = this.historyManager.getStats();
+        const output = `${historyList}\n\n履歴ファイル: ${stats.filePath}\n総コマンド数: ${stats.totalCommands}`;
+        
+        return { stdout: output, stderr: '', exitCode: 0 };
       }
     });
 

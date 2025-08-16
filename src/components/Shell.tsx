@@ -5,12 +5,14 @@ import { CommandExecutor } from '../modules/CommandExecutor.js';
 import { BuiltinCommands } from '../modules/BuiltinCommands.js';
 import { TabCompletion } from '../modules/TabCompletion.js';
 import { AutoSuggestion } from '../modules/AutoSuggestion.js';
+import { HistoryManager } from '../modules/HistoryManager.js';
 import { OutputRenderer } from './OutputRenderer.js';
 import { InputPrompt } from './InputPrompt.js';
 import { CompletionMenu } from './CompletionMenu.js';
 import { generatePromptLine } from '../utils/pathUtils.js';
 import { outputIdGenerator } from '../utils/idUtils.js';
 import { parseCommandLine, needsComplexParsing } from '../utils/commandParser.js';
+import { getSettings } from '../config/settings.js';
 
 const initialState: ShellState = {
   currentDirectory: process.cwd(),
@@ -49,7 +51,17 @@ export const Shell: React.FC = () => {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const commandExecutor = new CommandExecutor();
-  const builtinCommands = new BuiltinCommands(setState);
+  
+  // HistoryManagerの初期化
+  const settings = getSettings();
+  const historyManager = useMemo(() => new HistoryManager({
+    maxHistorySize: settings.history.maxSize,
+    historyFile: settings.history.filePath,
+    saveHistory: settings.history.enabled,
+    saveFailedCommands: settings.history.saveFailedCommands,
+  }), [settings]);
+  
+  const builtinCommands = useMemo(() => new BuiltinCommands(setState, historyManager), [historyManager]);
   
   // ターミナルサイズを監視して出力行数を制限
   const [terminalHeight, setTerminalHeight] = useState(stdout?.rows || 24);
@@ -187,10 +199,9 @@ export const Shell: React.FC = () => {
     const promptLine = generatePromptLine(state.currentDirectory);
     addOutput(promptLine + input, 'command', state.currentDirectory);
 
-    // コマンドをhistoryに追加 📚
+    // コマンド実行状態に変更
     setState(prev => ({
       ...prev,
-      history: [...prev.history, input],
       historyIndex: -1,
       isRunningCommand: true,
       currentInput: '',
@@ -198,15 +209,18 @@ export const Shell: React.FC = () => {
       tabCompletion: { ...initialState.tabCompletion },
     }));
 
+    let exitCode = 0;
+    
     try {
       // Use improved command parsing that respects quotes
       const { command, args } = needsComplexParsing(input) 
         ? parseCommandLine(input) 
         : { command: input.trim().split(/\s+/)[0], args: input.trim().split(/\s+/).slice(1) };
-      
+
       // ビルトインコマンドをチェック 🔍
       if (command && builtinCommands.hasCommand(command)) {
         const result = await builtinCommands.execute(command, args);
+        exitCode = result.exitCode;
         
         // 出力を一括で状態に追加
         const newOutputs: OutputLine[] = [];
@@ -253,6 +267,7 @@ export const Shell: React.FC = () => {
           },
         };
         const result = await commandExecutor.execute(input, options);
+        exitCode = result.exitCode;
         
         // 出力を一括で状態に追加
         const newOutputs: OutputLine[] = [];
@@ -290,7 +305,11 @@ export const Shell: React.FC = () => {
       }
     } catch (error) {
       addOutput(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      exitCode = 1; // エラーが発生した場合は終了コード1
     }
+
+    // コマンドをhistoryに追加（終了ステータスを考慮） 📚
+    await historyManager.addCommand(input, exitCode);
 
     // 実行完了後、新しいプロンプトと状態を一度に更新 ✨
     const currentCwd = process.cwd();
@@ -300,6 +319,7 @@ export const Shell: React.FC = () => {
       ...prev,
       isRunningCommand: false,
       currentDirectory: currentCwd,
+      history: historyManager.getHistory(),
       output: [...prev.output, {
         id: outputIdGenerator.generate('prompt'),
         content: newPromptLine,
@@ -308,7 +328,7 @@ export const Shell: React.FC = () => {
         directory: currentCwd,
       }]
     }));
-  }, [state.currentDirectory, addOutput, builtinCommands, commandExecutor, suspendUI, restoreUI]);
+  }, [state.currentDirectory, addOutput, builtinCommands, commandExecutor, suspendUI, restoreUI, historyManager]);
 
 
   // 新しいタブ補完処理 🎯
@@ -756,16 +776,28 @@ export const Shell: React.FC = () => {
 
   useInput(handleInput, { isActive: !state.isRunningInteractive });
 
-  // 初回プロンプトを追加 🚀
+  // 初回プロンプトを追加 & 履歴をロード 🚀
   useEffect(() => {
-    if (state.output.length === 0) {
-      const currentCwd = process.cwd();
-      const initialPrompt = generatePromptLine(currentCwd);
-      addOutput(initialPrompt, 'prompt', currentCwd);
-      // 状態も初期化時に同期
-      setState(prev => ({ ...prev, currentDirectory: currentCwd }));
-    }
-  }, []);
+    const initialize = async () => {
+      if (state.output.length === 0) {
+        const currentCwd = process.cwd();
+        const initialPrompt = generatePromptLine(currentCwd);
+        addOutput(initialPrompt, 'prompt', currentCwd);
+        
+        // 履歴をロード
+        const loadedHistory = await historyManager.loadHistory();
+        
+        // 状態も初期化時に同期
+        setState(prev => ({ 
+          ...prev, 
+          currentDirectory: currentCwd,
+          history: loadedHistory
+        }));
+      }
+    };
+    
+    initialize();
+  }, [historyManager, addOutput]);
 
   // Don't render the shell UI when running interactive commands
   if (state.isRunningInteractive) {
